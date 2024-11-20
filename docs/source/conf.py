@@ -2,12 +2,12 @@
 
 # -- Project information
 
-project = 'Lumache'
-copyright = '2021, Graziella'
-author = 'Graziella'
+project = 'QMCPACK Tutorials'
+copyright = '2024, QMCPACK Team'
+author = 'QMCPACK Team'
 
 release = '0.1'
-version = '0.1.0'
+version = '0.0.1'
 
 # -- General configuration
 
@@ -17,6 +17,7 @@ extensions = [
     'sphinx.ext.autodoc',
     'sphinx.ext.autosummary',
     'sphinx.ext.intersphinx',
+    'rinoh.frontend.sphinx'
 ]
 
 intersphinx_mapping = {
@@ -33,3 +34,10 @@ html_theme = 'sphinx_rtd_theme'
 
 # -- Options for EPUB output
 epub_show_urls = 'footnote'
+
+latex_elements = {
+    'papersize': 'letterpaper',
+    'pointsize': '10pt',
+    'preamble': '',
+    'figure_align': 'htbp'
+}
