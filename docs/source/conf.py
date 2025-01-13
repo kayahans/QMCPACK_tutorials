@@ -6,8 +6,8 @@ project = 'QMCPACK Tutorials'
 copyright = '2024, QMCPACK Team'
 author = 'QMCPACK Team'
 
-release = '0.1'
-version = '0.0.1'
+# release = '0.1'
+# version = '0.0.1'
 
 # -- General configuration
 
@@ -16,6 +16,7 @@ extensions = [
     'sphinx.ext.doctest',
     'sphinx.ext.autodoc',
     'sphinx.ext.autosummary',
+    'sphinx.ext.mathjax',
     'sphinx.ext.intersphinx',
     'rinoh.frontend.sphinx'
 ]
