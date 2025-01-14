@@ -28,7 +28,7 @@ Calculations that would need to be performed in QMCPACK
 Calculation steps
 ----------------
 
-* Convergence tests on BN shows that a kinetic energy cutoff of 400 eV and a kpoint grid of (8x8x1) is sufficient to achieve a resolution of 1 meV/atom on the DFT total energy. 
+* Convergence tests on BN shows that a kinetic energy cutoff of 400 Ry and a kpoint grid of (:math:`8\times8\times1`) is sufficient to achieve a resolution of 1 meV/atom on the DFT total energy. 
 
 * Self-consistent field calculation of the primitive cell of the material calculated using converged DFT parameters as above for interlayer separations of 2.5, 3.0, 3.25, 3.5, 4.0, 4.5 and 5.0 Angstroms. 
 
@@ -195,111 +195,223 @@ Workflow running script (run.py)
 
 Workflow library script (run_library.py)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.. _hBN_wf_script:
 
 .. code-block:: python
 
   #!/usr/bin/env python
-
   # nexus imports
   from nexus import Job, obj
   from nexus import settings
   from nexus import linear, loop, vmc, dmc
   from qmcpack_input import spindensity
+  # general settings for nexus
+  settings(
+      pseudo_dir    = './pseudos',
+      status_only   = 0,                    # only show status of runs
+      generate_only = 0,                    # only make input files
+      sleep         = 3.0,                    # check on runs every 3 secondsa
+      machine       = 'ws16'                # local machine is 16 core workstation
+      )
 
-  structures = {2.5:  'structures/hBN_d_2500.xsf',
-                3.0:  'structures/hBN_d_3000.xsf',
-                3.25: 'structures/hBN_d_3250.xsf',
-                3.5:  'structures/hBN_d_3500.xsf',
-                4.0:  'structures/hBN_d_4000.xsf',
-                4.5:  'structures/hBN_d_4500.xsf',
-                5.0:  'structures/hBN_d_5000.xsf',
-                'mono' : 'structures/hBN_mono.xsf'}
-  interlayer_separations  = list(structures.keys())
-  tiling_vectors          = [(2,2,1), (3,3,1), (4,4,1)]
-  tiling_kgrids           = {(2,2,1):(4,4,1), 
-                             (3,3,1):(2,2,1), 
-                             (4,4,1):(2,2,1)}
-
-  system_shared = obj(
-              B        = 3,
-              N        = 5,
-              net_spin = 0
-  )
-
-  dft_shared = obj(
-                  kgrid    = (8,8,1),
-                  ecutwfc  = 400,
-                  pseudos  = 'B.ccECP.upf N.ccECP.upf'.split()
-  )
-  qmc_shared = obj(
-                  hybrid_rcut  = obj(B=1.1, N=1.1),
-                  hybrid_lmax  = obj(B=5, N=5),
-                  meshfactor   = 0.5,
-                  pseudos      = 'B.ccECP.xml  N.ccECP.xml'.split()
-  )
-
-  scf_shared, nscf_shared, conv_shared = get_dft_settings(**dft_shared)
-
-  for d in interlayer_separations:
-      if isinstance(d, (int, float)):
-          d_name = int(d*1000)
+  def get_dft_settings(kgrid     = None, 
+                       ecutwfc   = None,
+                       pseudos   = None,
+                       start_mag = None, 
+                       hubbard   = None,):
+      
+      if settings.machine == 'ws16':
+          dft_job = Job(cores=16, app='/pw.x')
+          conv_job = Job(cores=1, app='pw2qmcpack.x')
       else:
-          d_name = d
+          print('Error: Unknown computer for DFT, using {}'.format(settings.machine))
+          exit()
 
-      scf_path = 'scf_{}'.format(d_name)
-      prim_system = generate_physical_system(
-              structure = read_structure(structures[d]),
-              **system_shared
-          )
-      scf_run = generate_pwscf(
-              system = prim_system,
-              path = scf_path,
-              **scf_shared
-          )
-      for t in tiling_vectors:
-          nscf_path = 'nscf_{}_{}'.format(d_name, t[0])
-          tiled_system = generate_physical_system(
-              structure = read_structure(structures[d]),
-              tiling   = t,
-              kgrid    = tiling_kgrids[t],
-              **system_shared
-          )
+      qe_shared = obj(
+          job          = dft_job,
+          input_type   = 'generic',
+          ecutwfc      = ecutwfc,                             # DFT planewave energy cutoff
+          input_DFT    = 'PBE',                               # DFT functional
+          conv_thr     = 1e-8,                                # SCF convergence threshold
+          wf_collect   = True,                                # write orbitals
+          pseudos      = pseudos,                             # QE Pseudopotentials
+          start_mag    = start_mag                            # Starting magnetization
+          hubbard      = hubbard                              # Hubbard-U parameters (QE ver. > 7.2)
+      )
 
-          nscf_run = generate_pwscf(
-              system = tiled_system,
-              path = nscf_path,
-              **nscf_shared
-          )        
+      scf_shared = obj(
+          nosym        = False,            # use symmetry
+          identifier   = 'scf',            # identifier/file prefix
+          calculation  = 'scf',            # perform scf calculation
+          kgrid        = kgrid,        # Converged DFT k-grid
+          occupations  = 'smearing',       # Occupation scheme
+          smearing     = 'gauss',          # Smearing type
+          degauss      = 0.001,            # Smearing width
+          **qe_shared
+      )
 
-          conv_run = generate_pw2qmcpack(
-              path         = nscf_path,   
-              dependencies = (nscf_run, 'orbitals'),
-              **conv_shared
-          )        
+      nscf_shared = obj(
+          nosym        = True,             # don't use symmetry
+          identifier   = 'nscf',           
+          calculation  = 'nscf',           # perform nscf calculation
+          occupations  = 'fixed',          # Use fixed occupations for insulators
+          **qe_shared
+      )    
 
-          dmc_path = 'dmc_{}_{}'.format(d_name, t[0])
-          
-          # Optimize jastrows using the first structure listed in 
-          if d == interlayer_separations[0]:
-              j2_path = 'j2_{}_{}'.format(d_name, t[0])
-              j3_path = 'j3_{}_{}'.format(d_name, t[0])
-              j2_shared, j3_shared, dmc_shared  = get_qmc_settings(system = tiled_system, **qmc_shared)
-              
-              j2_run = generate_qmcpack(path = j2_path,
-                                        dependencies = (conv_run, 'orbitals'),
-                                        **j2_shared)
+      conv_shared = obj(
+              identifier   = 'conv',          
+              job          = conv_job,
+              write_psir   = False,
+      )
 
-              j3_run = generate_qmcpack(path = j3_path,
-                                        dependencies = (conv_run, 'orbitals'),
-                                        **j3_shared)
-              
-          else:
-              _, _, dmc_shared = get_qmc_settings(system = tiled_system, **qmc_shared)
+      return scf_shared, nscf_shared, conv_shared
 
-          dmc_run = generate_qmcpack(path = dmc_path,
-                                      dependencies = [(j3_run, 'jastrow'),(conv_run, 'orbitals')],
-                                      **dmc_shared)
-    run_project()
+  def get_qmc_settings(system      = None,
+                       hybrid_rcut = None,
+                       hybrid_lmax = None, 
+                       meshfactor  = None,
+                       pseudos     = None):
+      
+      num_kpt = len(system.structure.kpoints)
+      
+      if settings.machine == 'ws16':
+          num_cores   = 16
+          dmc_threads = int(num_cores/num_kpt)
+          assert dmc_threads > 0, "Number of processors ({}) should be larger than or equal to the number of kpoints ({})".format(num_cores, num_kpt)
+          opt_job = Job(cores = num_cores, threads = num_cores, app='qmcpack_complex')
+          dmc_job = Job(cores = num_cores, threads = dmc_threads, app='qmcpack_complex')
+      else:
+          print('Error: Unknown computer for QMC, using {}'.format(settings.machine))
+          exit()
+
+      system.structure.change_units('B')
+      rwigner = system.structure.rwigner()
+
+      qmc_settings = obj(
+          system          = system, 
+          input_type      = 'basic',
+          pseudos         = pseudos,
+          driver          = 'batched',
+          hybrid_rcut     = hybrid_rcut,
+          hybrid_lmax     = hybrid_lmax,
+          meshfactor      = meshfactor,
+          lr_handler      = 'ewald',
+          lr_dim_cutoff   = 30,
+          spin_polarized  = True,
+      )
+
+      opt_parameters = obj(
+          num_varmin_j2   = 12,
+          num_emin_j2     = 8,
+          num_emin_j3     = 6,
+          j2_init         = "rpa",
+          num_j1_jastrows = 10,
+          num_j2_jastrows = 10,
+          num_j3_jastrows = 3,
+          j3_rcut         = 4.0 if rwigner > 4.0 else rwigner,
+          timestep        = 1.0
+      )
+
+      opt_settings = obj(
+          job             = opt_job,
+          twistnum        = 0,
+          # warmupsteps     = 200,
+          # samples         = 128000,
+          # blocks          = 100,
+          # steps           = 1,
+          # timestep        = 1.0,
+          # substeps        = 10,
+      )
+      opt_settings = opt_settings.set(qmc_settings)
+
+
+      varmin = linear(
+          energy               = 0.0, 
+          unreweightedvariance = 1.0,
+          reweightedvariance   = 0.0, 
+          minwalkers           = 1e-4,
+          shift_i              = 0.05,
+          shift_s              = 1.0,
+          warmupsteps          = 200,
+          blocks               = 100,
+          steps                = 1,
+          timestep             = 1.0,
+          minmethod            = "OneShiftOnly",
+          substeps             = 10,        
+      )    
+
+      emin = varmin.copy()
+      emin.minwalkers             = 0.5
+      emin.energy                 = 0.95
+      emin.unreweightedvariance   = 0.0
+      emin.reweightedvariance     = 0.05
+      emin.shift_i                = 0.01
+      emin.shift_s                = 1.0
+
+      
+      j2_settings     = obj(
+          calculations = [loop(max=opt_parameters.num_varmin_j2, qmc=varmin), 
+                          loop(max=opt_parameters.num_emin_j2,   qmc=emin)],
+          jastrows     = [('J1','bspline',opt_parameters.num_j1_jastrows, rwigner),                        # 1 body bspline jastrow
+                          ('J2','bspline',opt_parameters.num_j2_jastrows, 'init', opt_parameters.j2_init)], # 2 body bspline jastrow
+          **opt_settings
+      )
+
+      j3_settings     = obj(
+          calculations = [loop(max=opt_parameters.num_emin_j3, qmc=emin)],
+          jastrows     = [('J3', 'polynomial', opt_parameters.num_j3_jastrows,3, opt_parameters.j3_rcut)],
+          **opt_settings
+      )    
+
+      dmc_parameters = obj(
+          vmcdt       = 0.3,
+          vmcwarmup   = 25,
+          vmcblocks   = 100,
+          vmcsubsteps = 4,
+          dmc_eq_dt   = 0.02,
+          dmc_eq_blocks = 100,
+          dmcdt       = 0.005,
+          dmcblocks   = 500,
+          dmcwarmup   = 100,
+          dmcsteps    = 10,
+          vmc_walkers_per_rank = 240,
+          dmc_walkers_per_rank = 240,
+          nonlocalmoves = False, 
+      )
+
+      vmc_dmc = obj(
+          warmupsteps = dmc_parameters.vmcwarmup,
+          blocks      = dmc_parameters.vmcblocks,
+          steps       = 1,
+          timestep    = dmc_parameters.vmcdt,
+          substeps    = dmc_parameters.vmcsubsteps,
+          walkers_per_rank = dmc_parameters.vmc_walkers_per_rank
+      )
+      dmc_eq  = obj(
+          warmupsteps = dmc_parameters.dmcwarmup,
+          blocks      = dmc_parameters.dmc_eq_blocks,
+          steps       = dmc_parameters.dmcsteps,
+          timestep    = dmc_parameters.dmc_eq_dt,
+          walkers_per_rank = dmc_parameters.dmc_walkers_per_rank,
+          nonlocalmoves = dmc_parameters.nonlocalmoves, 
+      )
+      dmc_stat = obj(
+          warmupsteps = dmc_parameters.dmcwarmup,
+          blocks      = dmc_parameters.dmcblocks,
+          steps       = dmc_parameters.dmcsteps,
+          timestep    = dmc_parameters.dmcdt,
+          walkers_per_rank = dmc_parameters.dmc_walkers_per_rank,
+          nonlocalmoves = dmc_parameters.nonlocalmoves, 
+      )
+      
+      dmc_settings = obj(
+          job           = dmc_job,
+          calculations  = [vmc(**vmc_dmc), dmc(**dmc_eq), dmc(**dmc_stat)],
+          estimators    = [spindensity(dr=3*[0.3])],
+          **qmc_settings    
+      )
+
+      return j2_settings, j3_settings, dmc_settings
     
 Work through of the Nexus scripts
 ----------------
