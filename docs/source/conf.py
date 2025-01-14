@@ -18,8 +18,11 @@ extensions = [
     'sphinx.ext.autosummary',
     'sphinx.ext.mathjax',
     'sphinx.ext.intersphinx',
-    'rinoh.frontend.sphinx'
+    'rinoh.frontend.sphinx',
+    'sphinxcontrib.bibtex'
 ]
+
+bibtex_bibfiles = ['refs.bib']
 
 intersphinx_mapping = {
     'python': ('https://docs.python.org/3/', None),

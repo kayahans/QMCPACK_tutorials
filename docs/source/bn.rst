@@ -1,7 +1,7 @@
 Binding energy of bilayer hexagonal BN 
 =================
 
-.. _aim:
+.. _hBN:
 
 Aim
 ------------
@@ -28,7 +28,7 @@ Calculations that would need to be performed in QMCPACK
 Calculation steps
 ----------------
 
-* Convergence tests on BN shows that a kinetic energy cutoff of XX eV and a kpoint grid of (8x8x1) is sufficient to achieve a resolution of 1 meV/atom on the DFT total energy. 
+* Convergence tests on BN shows that a kinetic energy cutoff of 400 eV and a kpoint grid of (8x8x1) is sufficient to achieve a resolution of 1 meV/atom on the DFT total energy. 
 
 * Self-consistent field calculation of the primitive cell of the material calculated using converged DFT parameters as above for interlayer separations of 2.5, 3.0, 3.25, 3.5, 4.0, 4.5 and 5.0 Angstroms. 
 
@@ -58,7 +58,7 @@ Contents of working directory
 ----------------
 .. code-block:: text
   
-  \BN_tutorial
+  /BN_tutorial
   ├── pseudos/ 
   │   ├── B.ccECP.upf 
   │   ├── B.ccECP.xml 
@@ -67,15 +67,15 @@ Contents of working directory
   ├── README 
   ├── run_library.py 
   ├── run.py 
-  ├── structures/ 
-  │   ├── hBN_d_2500.xsf 
-  │   ├── hBN_d_3000.xsf 
-  │   ├── hBN_d_3250.xsf 
-  │   ├── hBN_d_3500.xsf 
-  │   ├── hBN_d_4000.xsf 
-  │   ├── hBN_d_4500.xsf 
-  │   ├── hBN_d_5000.xsf 
-  │   └── hBN_mono.xsf 
+  └── structures/ 
+      ├── hBN_d_2500.xsf 
+      ├── hBN_d_3000.xsf 
+      ├── hBN_d_3250.xsf 
+      ├── hBN_d_3500.xsf 
+      ├── hBN_d_4000.xsf 
+      ├── hBN_d_4500.xsf 
+      ├── hBN_d_5000.xsf 
+      └── hBN_mono.xsf 
 
 Complete Nexus scripts
 ----------------
@@ -95,7 +95,7 @@ Workflow running script (run.py)
   from nexus import generate_pw2qmcpack
   from nexus import generate_qmcpack
 
-  # material specific settings start
+  # material specific DFT settings start
   structures = {2.5:  'structures/hBN_d_2500.xsf',
                 3.0:  'structures/hBN_d_3000.xsf',
                 3.25: 'structures/hBN_d_3250.xsf',
@@ -127,7 +127,7 @@ Workflow running script (run.py)
                   meshfactor   = 0.5,
                   pseudos      = 'B.ccECP.xml  N.ccECP.xml'.split()
   )
-  # material specific settings end 
+  # material specific DFT settings end 
 
   scf_shared, nscf_shared, conv_shared = get_dft_settings(**dft_shared) # Load DFT settings 
   
@@ -301,26 +301,57 @@ Workflow library script (run_library.py)
                                       **dmc_shared)
     run_project()
     
-Breakdown of the Nexus scripts
+Work through of the Nexus scripts
 ----------------
 
-The workflow in this example is managed by `run.py`, while most settings that remain invariant between different materials/structures are stored in `run_library.py`. 
-This tutorial assumes a familiarity with Nexus workflow scripts, therefore please refer to `https://nexus-workflows.readthedocs.io/en/latest/ <https://nexus-workflows.readthedocs.io/en/latest/>`_ for a general basic understanding of Nexus suite. 
-In ``
-.. To retrieve a list of random ingredients,
-.. you can use the ``lumache.get_random_ingredients()`` function:
+The workflow in this example is managed by `run.py`, while DFT and QMC settings are generated using functions imported from `run_library.py`. Therefore, both scripts need to be in the same directory to complete the workflow. 
+If you plan to use modified versions of the scripts in your own work repeatedly, you can alternatively place `run_library.py` in a directory defined under :code:`PYTHONPATH` environment variable to make it accessible to Python interpreter. 
 
-.. .. autofunction:: lumache.get_random_ingredients
+We start with `run.py`. This script has 4 main components: 
+(1) Importing Nexus and user library modules (from :code:`run_library`), 
+(2) materials specific DFT settings and inputs (e.g. structure files, kgrid, kinetic energy cutoffs), 
+(3) A :code:`for` loop running over the :code:`interlayer_separations` and 
+(4) an inner :code:`for` loop running over the :code:`tiling_vectors`. 
 
-.. The ``kind`` parameter should be either ``"meat"``, ``"fish"``,
-.. or ``"veggies"``. Otherwise, :py:func:`lumache.get_random_ingredients`
-.. will raise an exception.
+After the Nexus module imports, in the DFT settings section of the script, all the structures to be used are defined in the :code:`structures` dictionary.
+Some of the QMC settings that are shared across all calculations are also stored in here, such as hybrid representation parameters and DMC pseudopotential files. 
+For more info on the hybrid representation and how to choose hybrid representation parameters, please refer to `QMCPACK manual <https://qmcpack.readthedocs.io/en/develop/intro_wavefunction.html#hybrid-orbital-representation>`_.
+In this example, we find that DFT ground state energy of a bilayer system converges at a kgrid of :math:`8\times8\times1` and kinetic energy cutoff of 400 eV.
+We use :code:`tiling_vectors` which are simply diagonal supercell matrices of :math:`2\times2\times1`, :math:`3\times3\times1` and :math:`4\times4\times1` that are represented as tuples. 
+To ensure convergence in DMC, we use combinations of :code:`tiling_vectors` and :code:`tiling_kgrids`, such that the product of these two matrices exceed or match the converged kgrid in the DFT calculation.
+This assumes that the one-body errors in DMC are very similar to DFT, which is a reasonable approximation if the valence band structure is not expected to modified significantly.
+The keys of this :code:`structures` dictionary are later used to denote interlayer separations of the bilayer hBN. These xsf files are processed by Nexus in :code:`read_structure(structures[d])` line. 
+:code:`generate_pwscf` function creates the :code:`scf_run` object using Quantum Espresso code which is of type :code:`Simulation`. 
+Each initialization of a :code:`Simulation` object, such as :code:`scf_run`, enables storing that object in the internal memory of Nexus that is inaccessible to the user, 
+therefore these objects do not need to be stored in an array to be passed to the :code:`run_project` function at the end of the script. 
+However, storing this object in the local memory as :code:`scf_run`, enables setting up dependencies between these :code:`Simulation` objects, such as :code:`'charge_density'`, :code:`orbitals` and :code:`jastrow`. 
+The :code:`tiling_vectors` loop then initiates the NSCF calculations with separate tiling vectors and kgrids, which are later unfolded by QMCPACK and later used as supercell calculations. 
+Each tiling of the primitive cell requires defining a separate :code:`PhysicalSystem` object using :code:`generate_physical_system`. 
+:code:`PhysicalSystem` object carries the information on both the primitive and the supercell (tiling) of the material studied. 
+:code:`nscf_run` and :code:`conv_run` objects define the NSCF calculations and Quantum Espresso to QMCPACK conversion calculations respectively. 
+After these steps, in the last if/else block Jastrow optimizations are performed and DMC calculation settings are imported. 
+Jastrow optimizations are performed only for a single bilayer separation (:code:`interlayer_separations[0]`, which is 2.5 :math:`\AA`). 
+For well optimized wavefunctions (e.g. variance/energy ratios close to or below 0.01 as a rule of thumb), the localization error is minimal, 
+therefore Jastrow parameters can be accurately reused across similar geometries (e.g. bilayer separations, equation of states) without modification if the cutoff radii of the Jastrow parameters are smaller than the Wigner-Seitz radii of these geometries. 
+We optimize Jastrow parameters from scratch at every supercell size (:code:`tiling_vectors`), because at increased system size, larger Jastrow cutoff radii are allowed, and especially two-body Jastrow parameters with larger cutoff radii could improve the quality of the optimized wavefunction. 
+First, two-body jastrow parameters are optimized and then these optimal parameters are used to initialize combined two and three body Jastrow parameters in :code:`j3_run`.
+Finally, using converted the Slater wavefunction from :code:`conv_run` and optimized Jastrow parameters from :code:`j3_run`, DMC calculations are executed. 
 
-.. .. autoexception:: lumache.InvalidKindError
+Next, we work through the `run_library.py` script. This script has 3 main components: 
+(1) A call to :code:`settings` function in Nexus,
+(2) :code:`get_dft_settings` function,
+(3) :code:`get_qmc_settings` function.
 
-.. For example:
+The call to :code:`settings` function initializes the workspace for Nexus and controls the workflow execution. :code:`status_only` and :code:`generate_only` can be set to either 0 or 1 to check the workflow status without updating and modifying any simulation object and produce the input files without executing the workflow respectively.
+:code:`machine` defines which machine is currently utilized to run the simulations. :code:`ws16` is a generic 16 core workstation.
+However, most US-based and some Europe and Japan based supercomputers, and in some cases smaller institutional clusters are also available and kept up-to-date under this setting. 
+With :code:`machine` setting, Nexus can become aware of the computer architecture and identify how to interact with its job scheduler to submit jobs and check the status of running simulations. 
+:code:`get_dft_settings` is a user defined function which only uses converged kpoint grid, kinetic energy cutoff and pseudopotential files as a minimal setup to define SCF, 
+NSCF and Quantum Espresso to QMCPACK conversion run (:code:`scf_shared`, :code:`nscf_shared`, :code:`conv_shared`) settings.  
+:code:`get_qmc_settings` is also a user defined function which uses the :code:`PhysicalSystem` object, hybrid-representation parameters and pseudopotential files as a minimal setup to define the settings for QMC calculations. 
+Comparing DFT and QMC settings, we can see that DFT settings are oblivious to the material used, while QMC settings require :code:`PhysicalSystem` object as an input parameter, because some parameters such as Jastrow radii are dependent on the system size in our workflow. 
+Although these functions aim to be general to large classes of materials by construction, they are far from being truly general and make assumptions on what kind of materials that can be studied using them. 
+For example, if the DFT electronic structure is metallic, then DFT settings would need to be modified since :code:`occupations  = 'fixed'` would be invalid and more care would be required for the smearing in the SCF calculation. 
+Similarly, if the user wants to achieve certain final uncertainty in the DMC total energies, then the statistical accumulation parameters (e.g. number of blocks, walkers) can be optimized with respect to several factors such as system size, complexity and electron count to minimize computational cost, after benchmarking relevant systems. 
 
-.. >>> import lumache
-.. >>> lumache.get_random_ingredients()
-.. ['shells', 'gorgonzola', 'parsley']
 
