@@ -18,6 +18,7 @@ extensions = [
     'sphinx.ext.autosummary',
     'sphinx.ext.mathjax',
     'sphinx.ext.intersphinx',
+    'sphinx_copybutton',
     'rinoh.frontend.sphinx',
     'sphinxcontrib.bibtex'
 ]
